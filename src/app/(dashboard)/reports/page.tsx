@@ -16,7 +16,7 @@ export default async function ReportsPage() {
   // Fetch all vehicles
   const { data: vehicles } = await supabase
     .from('vehicles')
-    .select('id, registration_number, name_model, acquisition_cost, type')
+    .select('id, registration_number, name_model, acquisition_cost, type, status')
 
   // Fetch maintenance costs
   const { data: maintenanceLogs } = await supabase

@@ -28,9 +28,22 @@ export default async function DriversPage() {
     .select('*')
     .order('created_at', { ascending: false })
 
+  // Fetch trips to calculate completed trips count
+  const { data: trips } = await supabase
+    .from('trips')
+    .select('driver_id, status')
+
+  const driversWithCompletedTrips = (drivers || []).map((d) => {
+    const completedCount = (trips || []).filter(t => t.driver_id === d.id && t.status === 'Completed').length
+    return {
+      ...d,
+      completed_trips: completedCount
+    }
+  })
+
   return (
     <DriversClient 
-      initialDrivers={(drivers || []) as any[]} 
+      initialDrivers={driversWithCompletedTrips} 
       userRole={role} 
     />
   )

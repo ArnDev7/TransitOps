@@ -355,6 +355,12 @@ export default function TripsClient({ initialTrips, userRole }: TripsClientProps
     }
   }
 
+  const selectedVehicleObj = availableVehicles.find(v => v.id === selectedVehicleId);
+  const cargoWeightNum = parseFloat(cargoWeight);
+  const maxCapacityVal = selectedVehicleObj?.max_load_capacity || 0;
+  const isCargoOverloaded = selectedVehicleObj && !isNaN(cargoWeightNum) && cargoWeightNum > maxCapacityVal;
+  const cargoExceededAmt = isCargoOverloaded ? cargoWeightNum - maxCapacityVal : 0;
+
   return (
     <div className="space-y-6">
       {/* Title & Actions */}
@@ -390,146 +396,192 @@ export default function TripsClient({ initialTrips, userRole }: TripsClientProps
       )}
 
       {/* Trips list */}
-      {trips.length === 0 ? (
-        <div className="bg-slate-900/30 border border-slate-800 rounded-xl p-12 text-center text-slate-500">
-          <Route className="h-12 w-12 mx-auto text-slate-700 mb-3" />
-          <p>No trips registered in the system.</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          {trips.map((trip) => (
-            <div 
-              key={trip.id}
-              className="bg-slate-900/40 border border-slate-850 rounded-xl p-5 flex flex-col relative group hover:border-slate-800 transition-all shadow-lg"
-            >
-              {/* Trip Header */}
-              <div className="flex justify-between items-start mb-4 pb-3 border-b border-slate-850">
-                <div>
-                  <span className="text-xs text-slate-500 block">Trip ID</span>
-                  <code className="text-xs text-blue-400 font-mono tracking-wider">{trip.id.substring(0, 8)}...</code>
-                </div>
-                <span className={`px-2.5 py-0.5 rounded text-xs font-semibold ${getStatusBadge(trip.status)}`}>
-                  {trip.status}
-                </span>
-              </div>
-
-              {/* Route Info */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4 bg-slate-950/30 p-3 rounded-lg border border-slate-850/60">
-                <div className="flex items-start space-x-2.5">
-                  <MapPin className="h-5 w-5 text-blue-500 shrink-0 mt-0.5" />
-                  <div>
-                    <span className="text-[10px] text-slate-500 uppercase tracking-wider block">Source</span>
-                    <span className="text-sm font-semibold text-slate-200">{trip.source}</span>
-                  </div>
-                </div>
-                <div className="flex items-start space-x-2.5">
-                  <MapPin className="h-5 w-5 text-indigo-500 shrink-0 mt-0.5" />
-                  <div>
-                    <span className="text-[10px] text-slate-500 uppercase tracking-wider block">Destination</span>
-                    <span className="text-sm font-semibold text-slate-200">{trip.destination}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Vehicle & Driver Assignments */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm text-slate-400 mb-4">
-                <div className="flex items-center space-x-2.5">
-                  <Car className="h-4 w-4 text-slate-500 shrink-0" />
-                  <span className="truncate">
-                    Vehicle: <strong className="text-slate-350">{trip.vehicles ? `${trip.vehicles.name_model} (${trip.vehicles.registration_number})` : 'Deleted Vehicle'}</strong>
-                  </span>
-                </div>
-                <div className="flex items-center space-x-2.5">
-                  <User className="h-4 w-4 text-slate-500 shrink-0" />
-                  <span className="truncate">
-                    Driver: <strong className="text-slate-350">{trip.drivers ? trip.drivers.name : 'Deleted Driver'}</strong>
-                  </span>
-                </div>
-              </div>
-
-              {/* Logistics & Metrics */}
-              <div className="grid grid-cols-3 gap-2 text-center text-xs bg-slate-950/40 py-2.5 rounded-lg border border-slate-850 mb-4">
-                <div>
-                  <span className="text-slate-500 block mb-0.5">Cargo Weight</span>
-                  <span className="font-bold text-slate-300 flex items-center justify-center">
-                    <Scale className="h-3.5 w-3.5 mr-1 text-slate-550" />
-                    {trip.cargo_weight} kg
-                  </span>
-                </div>
-                <div>
-                  <span className="text-slate-500 block mb-0.5">Distance</span>
-                  <span className="font-bold text-slate-300 flex items-center justify-center">
-                    <Gauge className="h-3.5 w-3.5 mr-1 text-slate-550" />
-                    {trip.planned_distance} km
-                  </span>
-                </div>
-                <div>
-                  <span className="text-slate-500 block mb-0.5">Revenue</span>
-                  <span className="font-bold text-blue-400 flex items-center justify-center">
-                    <DollarSign className="h-3.5 w-3.5 mr-0.5 text-blue-500" />
-                    {trip.revenue.toLocaleString()}
-                  </span>
-                </div>
-              </div>
-
-              {/* Complete Odometer / Fuel logs summary */}
-              {trip.status === 'Completed' && (
-                <div className="bg-emerald-950/10 border border-emerald-900/20 rounded-lg p-3 text-xs text-slate-400 mb-4 grid grid-cols-2 gap-2">
-                  <span className="flex items-center">
-                    <Gauge className="h-3.5 w-3.5 mr-1 text-emerald-500" />
-                    Final Odometer: <strong className="text-slate-200 ml-1">{trip.final_odometer} km</strong>
-                  </span>
-                  <span className="flex items-center">
-                    <Droplet className="h-3.5 w-3.5 mr-1 text-emerald-500" />
-                    Fuel Consumed: <strong className="text-slate-200 ml-1">{trip.fuel_consumed} L</strong>
-                  </span>
-                </div>
-              )}
-
-              {/* Actions based on state */}
-              {isDriverOrManager && (
-                <div className="flex space-x-2 mt-auto pt-3 border-t border-slate-850/60 justify-end">
-                  {trip.status === 'Draft' && (
-                    <>
-                      <button
-                        onClick={() => handleCancel(trip.id)}
-                        className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-850 hover:bg-slate-800 text-slate-300 transition-colors"
-                      >
-                        Cancel Draft
-                      </button>
-                      <button
-                        onClick={() => handleDispatch(trip.id)}
-                        className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white transition-colors flex items-center space-x-1"
-                      >
-                        <Send className="h-3 w-3" />
-                        <span>Dispatch Trip</span>
-                      </button>
-                    </>
-                  )}
-
-                  {trip.status === 'Dispatched' && (
-                    <>
-                      <button
-                        onClick={() => handleCancel(trip.id)}
-                        className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-red-650 hover:bg-red-600 text-white transition-colors"
-                      >
-                        Cancel Dispatch
-                      </button>
-                      <button
-                        onClick={() => handleCompleteOpen(trip)}
-                        className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors flex items-center space-x-1"
-                      >
-                        <CheckCircle2 className="h-3 w-3" />
-                        <span>Complete Trip</span>
-                      </button>
-                    </>
-                  )}
-                </div>
-              )}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left 2/3 column: main trips log */}
+        <div className="lg:col-span-2 space-y-6">
+          {trips.length === 0 ? (
+            <div className="bg-slate-900/30 border border-slate-800 rounded-xl p-12 text-center text-slate-500">
+              <Route className="h-12 w-12 mx-auto text-slate-700 mb-3" />
+              <p>No trips registered in the system.</p>
             </div>
-          ))}
+          ) : (
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+              {trips.map((trip) => (
+                <div 
+                  key={trip.id}
+                  className="bg-slate-900/40 border border-slate-850 rounded-xl p-5 flex flex-col relative group hover:border-slate-800 transition-all shadow-lg text-xs"
+                >
+                  {/* Trip Header */}
+                  <div className="flex justify-between items-start mb-4 pb-3 border-b border-slate-850">
+                    <div>
+                      <span className="text-xs text-slate-500 block">Trip ID</span>
+                      <code className="text-xs text-blue-400 font-mono tracking-wider">{trip.id.substring(0, 8)}...</code>
+                    </div>
+                    <span className={`px-2.5 py-0.5 rounded text-xs font-semibold ${getStatusBadge(trip.status)}`}>
+                      {trip.status}
+                    </span>
+                  </div>
+
+                  {/* Route Info */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4 bg-slate-950/30 p-3 rounded-lg border border-slate-850/60">
+                    <div className="flex items-start space-x-2.5">
+                      <MapPin className="h-5 w-5 text-blue-500 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="text-[10px] text-slate-500 uppercase tracking-wider block">Source</span>
+                        <span className="text-sm font-semibold text-slate-200">{trip.source}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-start space-x-2.5">
+                      <MapPin className="h-5 w-5 text-indigo-500 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="text-[10px] text-slate-500 uppercase tracking-wider block">Destination</span>
+                        <span className="text-sm font-semibold text-slate-200">{trip.destination}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Vehicle & Driver Assignments */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs text-slate-400 mb-4">
+                    <div className="flex items-center space-x-2.5">
+                      <Car className="h-4 w-4 text-slate-500 shrink-0" />
+                      <span className="truncate">
+                        Vehicle: <strong className="text-slate-355">{trip.vehicles ? `${trip.vehicles.name_model} (${trip.vehicles.registration_number})` : 'Deleted Vehicle'}</strong>
+                      </span>
+                    </div>
+                    <div className="flex items-center space-x-2.5">
+                      <User className="h-4 w-4 text-slate-500 shrink-0" />
+                      <span className="truncate">
+                        Driver: <strong className="text-slate-355">{trip.drivers ? trip.drivers.name : 'Deleted Driver'}</strong>
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Logistics & Metrics */}
+                  <div className="grid grid-cols-3 gap-2 text-center text-xs bg-slate-950/40 py-2.5 rounded-lg border border-slate-850 mb-4">
+                    <div>
+                      <span className="text-slate-500 block mb-0.5">Cargo Weight</span>
+                      <span className="font-bold text-slate-300 flex items-center justify-center">
+                        <Scale className="h-3.5 w-3.5 mr-1 text-slate-550" />
+                        {trip.cargo_weight} kg
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block mb-0.5">Distance</span>
+                      <span className="font-bold text-slate-300 flex items-center justify-center">
+                        <Gauge className="h-3.5 w-3.5 mr-1 text-slate-550" />
+                        {trip.planned_distance} km
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block mb-0.5">Revenue</span>
+                      <span className="font-bold text-blue-400 flex items-center justify-center">
+                        <DollarSign className="h-3.5 w-3.5 mr-0.5 text-blue-500" />
+                        {trip.revenue.toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Complete Odometer / Fuel logs summary */}
+                  {trip.status === 'Completed' && (
+                    <div className="bg-emerald-950/10 border border-emerald-900/20 rounded-lg p-3 text-xs text-slate-400 mb-4 grid grid-cols-2 gap-2">
+                      <span className="flex items-center">
+                        <Gauge className="h-3.5 w-3.5 mr-1 text-emerald-500" />
+                        Final Odometer: <strong className="text-slate-200 ml-1">{trip.final_odometer} km</strong>
+                      </span>
+                      <span className="flex items-center">
+                        <Droplet className="h-3.5 w-3.5 mr-1 text-emerald-500" />
+                        Fuel Consumed: <strong className="text-slate-200 ml-1">{trip.fuel_consumed} L</strong>
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Actions based on state */}
+                  {isDriverOrManager && (
+                    <div className="flex space-x-2 mt-auto pt-3 border-t border-slate-850/60 justify-end">
+                      {trip.status === 'Draft' && (
+                        <>
+                          <button
+                            onClick={() => handleCancel(trip.id)}
+                            className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-850 hover:bg-slate-800 text-slate-350 transition-colors"
+                          >
+                            Cancel Draft
+                          </button>
+                          <button
+                            onClick={() => handleDispatch(trip.id)}
+                            className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white transition-colors flex items-center space-x-1"
+                          >
+                            <Send className="h-3 w-3" />
+                            <span>Dispatch Trip</span>
+                          </button>
+                        </>
+                      )}
+
+                      {trip.status === 'Dispatched' && (
+                        <>
+                          <button
+                            onClick={() => handleCancel(trip.id)}
+                            className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-red-650 hover:bg-red-600 text-white transition-colors"
+                          >
+                            Cancel Dispatch
+                          </button>
+                          <button
+                            onClick={() => handleCompleteOpen(trip)}
+                            className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors flex items-center space-x-1"
+                          >
+                            <CheckCircle2 className="h-3 w-3" />
+                            <span>Complete Trip</span>
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      )}
+
+        {/* Right 1/3 column: Live Board panel */}
+        <div className="bg-slate-900/40 border border-slate-850 rounded-xl p-5 shadow-lg flex flex-col h-fit space-y-4">
+          <div>
+            <h2 className="font-bold text-lg text-slate-200 flex items-center space-x-2">
+              <Clock className="h-5 w-5 text-blue-400 animate-pulse shrink-0" />
+              <span>Live Board</span>
+            </h2>
+            <p className="text-xs text-slate-400 mt-1">Real-time status of active or recently dispatched trips.</p>
+          </div>
+
+          <div className="space-y-3.5">
+            {trips
+              .filter(t => t.status === 'Dispatched' || t.status === 'Completed')
+              .slice(0, 5)
+              .map((t) => (
+                <div key={t.id} className="bg-slate-950/40 border border-slate-850 p-3.5 rounded-lg flex flex-col space-y-2 hover:border-slate-800 transition-colors">
+                  <div className="flex justify-between items-start">
+                    <span className="text-[9px] text-slate-500 font-mono">#{t.id.substring(0, 8)}</span>
+                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${getStatusBadge(t.status)}`}>
+                      {t.status}
+                    </span>
+                  </div>
+                  
+                  <div className="text-xs font-semibold text-slate-200">
+                    {t.source} → {t.destination}
+                  </div>
+                  
+                  <div className="text-[10px] text-slate-400 space-y-0.5">
+                    <div>Vehicle: <span className="text-slate-300">{t.vehicles?.name_model || 'N/A'} ({t.vehicles?.registration_number || 'N/A'})</span></div>
+                    <div>Driver: <span className="text-slate-300">{t.drivers?.name || 'N/A'}</span></div>
+                  </div>
+                </div>
+              ))}
+            {trips.filter(t => t.status === 'Dispatched' || t.status === 'Completed').length === 0 && (
+              <div className="text-center py-6 text-slate-550 text-xs">
+                No active or completed dispatches at this time.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* Create Modal */}
       {isCreateOpen && (
@@ -546,6 +598,39 @@ export default function TripsClient({ initialTrips, userRole }: TripsClientProps
               >
                 <X className="h-5 w-5" />
               </button>
+            </div>
+
+            {/* Visual Lifecycle Stepper */}
+            <div className="flex items-center justify-between mb-6 bg-slate-950 p-3.5 rounded-xl border border-slate-850">
+              {[
+                { label: 'Draft', status: 'Draft' },
+                { label: 'Dispatched', status: 'Dispatched' },
+                { label: 'Completed', status: 'Completed' },
+                { label: 'Cancelled', status: 'Cancelled' }
+              ].map((step, idx) => {
+                const isActive = step.status === 'Draft';
+                return (
+                  <React.Fragment key={step.status}>
+                    <div className="flex flex-col items-center flex-1">
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-extrabold border transition-all ${
+                        isActive 
+                          ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-900/30 scale-105' 
+                          : 'bg-slate-900 border-slate-800 text-slate-500'
+                      }`}>
+                        {idx + 1}
+                      </div>
+                      <span className={`text-[10px] font-bold mt-1 transition-colors ${
+                        isActive ? 'text-blue-400' : 'text-slate-500'
+                      }`}>
+                        {step.label}
+                      </span>
+                    </div>
+                    {idx < 3 && (
+                      <div className="h-px bg-slate-800 flex-1 mx-1 shrink-0" />
+                    )}
+                  </React.Fragment>
+                );
+              })}
             </div>
 
             <form onSubmit={handleCreateTrip} className="space-y-4">
@@ -673,6 +758,22 @@ export default function TripsClient({ initialTrips, userRole }: TripsClientProps
                 </div>
               </div>
 
+              {/* Overload Alert Box */}
+              {isCargoOverloaded && (
+                <div className="bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg p-3 text-xs mb-4 flex flex-col space-y-1 animate-in fade-in duration-200">
+                  <span className="font-bold flex items-center">
+                    <AlertCircle className="h-3.5 w-3.5 mr-1 shrink-0" />
+                    Dispatch Blocked: Load Capacity Exceeded
+                  </span>
+                  <span>
+                    Vehicle Capacity: <strong>{maxCapacityVal} kg</strong> / Cargo Weight: <strong>{cargoWeightNum} kg</strong>
+                  </span>
+                  <span className="font-semibold text-red-300">
+                    Capacity exceeded by {cargoExceededAmt} kg — dispatch blocked
+                  </span>
+                </div>
+              )}
+
               <div className="flex justify-end space-x-3 pt-4 border-t border-slate-800 mt-6">
                 <button
                   type="button"
@@ -683,8 +784,8 @@ export default function TripsClient({ initialTrips, userRole }: TripsClientProps
                 </button>
                 <button
                   type="submit"
-                  disabled={loading}
-                  className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2 rounded-lg text-sm font-semibold transition-colors shadow-lg shadow-blue-900/20"
+                  disabled={loading || isCargoOverloaded}
+                  className="bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800/50 disabled:text-slate-500 disabled:cursor-not-allowed text-white px-5 py-2 rounded-lg text-sm font-semibold transition-colors shadow-lg shadow-blue-900/20"
                 >
                   {loading ? 'Creating...' : 'Create Draft'}
                 </button>

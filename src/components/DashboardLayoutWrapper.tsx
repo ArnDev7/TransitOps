@@ -17,7 +17,8 @@ import {
   Menu, 
   X, 
   ShieldAlert,
-  User
+  User,
+  Settings
 } from 'lucide-react'
 
 interface DashboardLayoutWrapperProps {
@@ -56,6 +57,7 @@ export default function DashboardLayoutWrapper({ children, user, role }: Dashboa
     { name: 'Maintenance', href: '/maintenance', icon: Wrench, roles: ['fleet_manager', 'driver', 'safety_officer', 'financial_analyst'] },
     { name: 'Fuel & Expenses', href: '/expenses', icon: Coins, roles: ['fleet_manager', 'driver', 'safety_officer', 'financial_analyst'] },
     { name: 'Reports & ROI', href: '/reports', icon: BarChart3, roles: ['fleet_manager', 'driver', 'safety_officer', 'financial_analyst'] },
+    { name: 'Settings', href: '/settings', icon: Settings, roles: ['fleet_manager', 'driver', 'safety_officer', 'financial_analyst'] },
   ]
 
   const filteredMenuItems = menuItems.filter(item => item.roles.includes(role))

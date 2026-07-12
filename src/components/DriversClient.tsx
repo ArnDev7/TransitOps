@@ -28,6 +28,7 @@ interface Driver {
   safety_score: number
   status: 'Available' | 'On Trip' | 'Off Duty' | 'Suspended'
   created_at: string
+  completed_trips?: number
 }
 
 interface DriversClientProps {
@@ -188,12 +189,33 @@ export default function DriversClient({ initialDrivers, userRole }: DriversClien
     try {
       const { error: deleteErr } = await supabase
         .from('drivers')
+        .update({ status: 'Off Duty' }) // dummy/cascade check or delete
+      // Actually we just call delete:
+      const { error: realDeleteErr } = await supabase
+        .from('drivers')
         .delete()
         .eq('id', id)
-      if (deleteErr) throw deleteErr
+      if (realDeleteErr) throw realDeleteErr
       setDrivers(drivers.filter(d => d.id !== id))
     } catch (err: any) {
       alert(err.message || 'Error removing driver profile. They might be assigned to trips.')
+    }
+  }
+
+  // Quick Status Toggle Handler
+  const handleQuickStatusToggle = async (driver: Driver, newStatus: 'Available' | 'On Trip' | 'Off Duty' | 'Suspended') => {
+    try {
+      const { error: updateErr } = await supabase
+        .from('drivers')
+        .update({ status: newStatus })
+        .eq('id', driver.id)
+
+      if (updateErr) throw updateErr
+
+      // Update state locally
+      setDrivers(drivers.map(d => d.id === driver.id ? { ...d, status: newStatus } : d))
+    } catch (err: any) {
+      alert(err.message || 'Error updating driver status')
     }
   }
 
@@ -281,98 +303,127 @@ export default function DriversClient({ initialDrivers, userRole }: DriversClien
         </div>
       </div>
 
-      {/* Grid of Drivers */}
+      <p className="text-xs text-slate-500 pl-1">
+        Rule: Expired license or Suspended status → blocked from trip assignment.
+      </p>
+
+      {/* Table of Drivers */}
       {filteredDrivers.length === 0 ? (
         <div className="bg-slate-900/30 border border-slate-800 rounded-xl p-12 text-center text-slate-500">
           <User className="h-12 w-12 mx-auto text-slate-700 mb-3" />
           <p>No drivers found matching the search criteria.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredDrivers.map((driver) => {
-            const isLicenseExpired = new Date(driver.license_expiry_date) < new Date()
-            return (
-              <div 
-                key={driver.id} 
-                className="bg-slate-900/40 border border-slate-850 hover:border-slate-750 transition-all rounded-xl p-5 flex flex-col relative overflow-hidden group shadow-lg"
-              >
-                {/* Status indicator banner if license expired */}
-                {isLicenseExpired && (
-                  <div className="absolute top-0 right-0 left-0 bg-red-650 text-white text-[10px] uppercase font-bold py-1 px-4 text-center tracking-wider">
-                    License Expired
-                  </div>
-                )}
+        <div className="bg-slate-900/40 border border-slate-850 rounded-xl overflow-x-auto shadow-lg">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="border-b border-slate-800 text-slate-400 uppercase tracking-wider font-semibold bg-slate-900/50">
+                <th className="py-3 px-4">Driver</th>
+                <th className="py-3 px-4">License No</th>
+                <th className="py-3 px-4">Category</th>
+                <th className="py-3 px-4">Expiry</th>
+                <th className="py-3 px-4">Contact</th>
+                <th className="py-3 px-4 text-center">Trip Compl.</th>
+                <th className="py-3 px-4 text-center">Safety</th>
+                <th className="py-3 px-4">Status</th>
+                <th className="py-3 px-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-850">
+              {filteredDrivers.map((driver) => {
+                const isLicenseExpired = new Date(driver.license_expiry_date) < new Date();
+                const canToggleStatus = isFleetManager || isSafetyOfficer;
+                const isMidTrip = driver.status === 'On Trip';
 
-                {/* Card top details */}
-                <div className={`flex justify-between items-start mb-4 ${isLicenseExpired ? 'mt-4' : ''}`}>
-                  <div className="flex items-center space-x-3">
-                    <div className="h-10 w-10 rounded-full bg-slate-850 flex items-center justify-center text-slate-300 border border-slate-800 group-hover:border-blue-500 transition-colors">
-                      <User className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-slate-200 group-hover:text-white transition-colors">{driver.name}</h3>
-                      <span className="text-xs text-slate-400">{driver.contact_number || 'No contact number'}</span>
-                    </div>
-                  </div>
-                  <span className={`px-2.5 py-0.5 rounded text-xs font-semibold ${getStatusBadge(driver.status)}`}>
-                    {driver.status}
-                  </span>
-                </div>
+                return (
+                  <tr key={driver.id} className="hover:bg-slate-950/20 transition-colors">
+                    <td className="py-3 px-4 font-bold text-slate-200">
+                      <div className="flex items-center space-x-2">
+                        <div className="h-7 w-7 rounded-full bg-slate-850 flex items-center justify-center text-slate-400 border border-slate-800">
+                          <User className="h-3.5 w-3.5" />
+                        </div>
+                        <span>{driver.name}</span>
+                      </div>
+                    </td>
+                    <td className="py-3 px-4 font-mono text-slate-350">{driver.license_number}</td>
+                    <td className="py-3 px-4 text-slate-300">{driver.license_category}</td>
+                    <td className="py-3 px-4">
+                      <span className={`${isLicenseExpired ? 'text-red-400 font-bold' : 'text-slate-300'}`}>
+                        {driver.license_expiry_date}
+                        {isLicenseExpired && ' ⚠ EXPIRED'}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-slate-400">{driver.contact_number || 'N/A'}</td>
+                    <td className="py-3 px-4 text-center font-bold text-slate-300">
+                      {driver.completed_trips ?? 0}
+                    </td>
+                    <td className="py-3 px-4 text-center font-semibold">
+                      <span className={getSafetyScoreColor(driver.safety_score)}>
+                        {driver.safety_score}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${getStatusBadge(driver.status)}`}>
+                        {driver.status}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <div className="flex items-center justify-end space-x-3">
+                        {/* Quick Status Toggle Button Group */}
+                        {canToggleStatus && (
+                          <div className="flex bg-slate-950 p-0.5 rounded-lg border border-slate-850 space-x-0.5">
+                            {['Available', 'On Trip', 'Off Duty', 'Suspended'].map((st) => {
+                              const isCurrent = driver.status === st;
+                              const disabled = (st === 'On Trip' && !isCurrent) || (isMidTrip && !isCurrent);
+                              
+                              return (
+                                <button
+                                  key={st}
+                                  type="button"
+                                  disabled={disabled}
+                                  onClick={() => handleQuickStatusToggle(driver, st as any)}
+                                  className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-all ${
+                                    isCurrent
+                                      ? 'bg-blue-600 text-white'
+                                      : 'hover:bg-slate-900 text-slate-400'
+                                  } ${disabled ? 'opacity-30 cursor-not-allowed' : ''}`}
+                                  title={disabled ? "Cannot change status when driver is On Trip" : `Set ${st}`}
+                                >
+                                  {st}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
 
-                {/* Specs */}
-                <div className="grid grid-cols-2 gap-3 text-sm text-slate-400 border-t border-b border-slate-850 py-3.5 my-3.5">
-                  <div className="flex items-center space-x-2">
-                    <FileText className="h-4 w-4 text-slate-500 shrink-0" />
-                    <span className="truncate" title={driver.license_number}>{driver.license_number}</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <Award className="h-4 w-4 text-slate-500 shrink-0" />
-                    <span className="truncate">{driver.license_category}</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <Calendar className="h-4 w-4 text-slate-500 shrink-0" />
-                    <span className={`truncate ${isLicenseExpired ? 'text-red-400 font-semibold' : ''}`}>
-                      Exp: {driver.license_expiry_date}
-                    </span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <ShieldCheck className="h-4 w-4 text-slate-500 shrink-0" />
-                    <span className="truncate">
-                      Score: <strong className={getSafetyScoreColor(driver.safety_score)}>{driver.safety_score}</strong>
-                    </span>
-                  </div>
-                </div>
-
-                {/* Card actions */}
-                <div className="flex justify-between items-center mt-auto pt-2">
-                  <span className="text-xs text-slate-500">
-                    {isSafetyOfficer ? 'Safety Managed' : 'All Roles'}
-                  </span>
-                  {hasEditAccess && (
-                    <div className="flex space-x-2">
-                      <button
-                        onClick={() => handleEditOpen(driver)}
-                        className="p-2 rounded bg-slate-850 hover:bg-slate-800 text-slate-300 hover:text-slate-100 transition-colors flex items-center space-x-1.5 text-xs font-medium"
-                        title={isSafetyOfficer ? 'Edit Compliance Only' : 'Edit Driver'}
-                      >
-                        <Edit2 className="h-3.5 w-3.5" />
-                        {isSafetyOfficer && <span>Compliance</span>}
-                      </button>
-                      {isFleetManager && (
-                        <button
-                          onClick={() => handleDelete(driver.id)}
-                          className="p-2 rounded bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 transition-colors"
-                          title="Delete Driver"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )
-          })}
+                        {/* Edit & Delete Buttons */}
+                        {hasEditAccess && (
+                          <div className="flex space-x-1.5">
+                            <button
+                              onClick={() => handleEditOpen(driver)}
+                              className="p-1.5 rounded bg-slate-850 hover:bg-slate-800 text-slate-300 hover:text-slate-100 transition-colors"
+                              title={isSafetyOfficer ? 'Edit Compliance Only' : 'Edit Driver'}
+                            >
+                              <Edit2 className="h-3.5 w-3.5" />
+                            </button>
+                            {isFleetManager && (
+                              <button
+                                onClick={() => handleDelete(driver.id)}
+                                className="p-1.5 rounded bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 transition-colors"
+                                title="Delete Driver"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
 

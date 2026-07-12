@@ -37,6 +37,12 @@ interface Expense {
   vehicles: { name_model: string; registration_number: string } | null
 }
 
+interface MaintenanceLog {
+  cost: number
+  vehicle_id: string
+  created_at: string
+}
+
 interface SelectionVehicle {
   id: string
   name_model: string
@@ -47,9 +53,10 @@ interface ExpensesClientProps {
   initialFuelLogs: FuelLog[]
   initialExpenses: Expense[]
   userRole: string
+  maintenanceLogs?: MaintenanceLog[]
 }
 
-export default function ExpensesClient({ initialFuelLogs, initialExpenses, userRole }: ExpensesClientProps) {
+export default function ExpensesClient({ initialFuelLogs, initialExpenses, userRole, maintenanceLogs }: ExpensesClientProps) {
   const supabase = createClient()
   const [activeTab, setActiveTab] = useState<'fuel' | 'expenses'>('fuel')
   
@@ -244,58 +251,25 @@ export default function ExpensesClient({ initialFuelLogs, initialExpenses, userR
   const filteredFuel = fuelLogs.filter(l => vehicleFilter === 'All' || l.vehicle_id === vehicleFilter)
   const filteredExpenses = expenses.filter(e => vehicleFilter === 'All' || e.vehicle_id === vehicleFilter)
 
-  return (
-    <div className="space-y-6">
-      {/* Title & Actions */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Fuel & Expenses</h1>
-          <p className="text-slate-400 text-sm mt-1">Log vehicle fuel receipts and operational expenses like tolls.</p>
-        </div>
-        {isDriverOrManager && (
-          <div className="flex space-x-2">
-            <button
-              onClick={() => setIsFuelModalOpen(true)}
-              className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2.5 rounded-lg font-semibold flex items-center space-x-2 transition-all text-sm shadow-lg shadow-blue-900/20"
-            >
-              <Droplet className="h-4.5 w-4.5" />
-              <span>Log Fuel</span>
-            </button>
-            <button
-              onClick={() => setIsExpenseModalOpen(true)}
-              className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2.5 rounded-lg font-semibold flex items-center space-x-2 transition-all text-sm shadow-lg shadow-indigo-900/20"
-            >
-              <Coins className="h-4.5 w-4.5" />
-              <span>Log Expense</span>
-            </button>
-          </div>
-        )}
-      </div>
+  const getLinkedMaintCost = (vehicleId: string, expenseDate: string) => {
+    const log = (maintenanceLogs || []).find((l) => {
+      return l.vehicle_id === vehicleId && 
+        new Date(l.created_at).toISOString().split('T')[0] === expenseDate
+    })
+    return log ? log.cost : 0
+  }
 
-      {/* Tabs Menu */}
-      <div className="flex border-b border-slate-800">
-        <button
-          onClick={() => setActiveTab('fuel')}
-          className={`px-6 py-3 font-semibold text-sm border-b-2 transition-colors flex items-center space-x-2 ${
-            activeTab === 'fuel' 
-              ? 'border-blue-500 text-blue-400' 
-              : 'border-transparent text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Droplet className="h-4 w-4" />
-          <span>Fuel Receipts ({fuelLogs.length})</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('expenses')}
-          className={`px-6 py-3 font-semibold text-sm border-b-2 transition-colors flex items-center space-x-2 ${
-            activeTab === 'expenses' 
-              ? 'border-indigo-500 text-indigo-400' 
-              : 'border-transparent text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Coins className="h-4 w-4" />
-          <span>Other Expenses ({expenses.length})</span>
-        </button>
+  // Cost calculation
+  const totalFuelCost = fuelLogs.reduce((sum, item) => sum + item.cost, 0)
+  const totalMaintCost = (maintenanceLogs || []).reduce((sum, item) => sum + item.cost, 0)
+  const totalOpCost = totalFuelCost + totalMaintCost
+
+  return (
+    <div className="space-y-8">
+      {/* Title */}
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">Fuel & Expenses</h1>
+        <p className="text-slate-400 text-sm mt-1">Log vehicle fuel receipts and operational expenses like tolls.</p>
       </div>
 
       {/* Vehicle filter */}
@@ -304,7 +278,7 @@ export default function ExpensesClient({ initialFuelLogs, initialExpenses, userR
         <select
           value={vehicleFilter}
           onChange={(e) => setVehicleFilter(e.target.value)}
-          className="w-full bg-slate-950 border border-slate-850 rounded-lg py-1.5 px-3 text-sm text-slate-350 focus:outline-none focus:border-blue-500 transition-colors"
+          className="w-full bg-slate-950 border border-slate-850 rounded-lg py-1.5 px-3 text-xs text-slate-350 focus:outline-none focus:border-blue-500 transition-colors"
         >
           <option value="All">All Vehicles</option>
           {allVehicles.map(v => (
@@ -328,41 +302,57 @@ export default function ExpensesClient({ initialFuelLogs, initialExpenses, userR
         </div>
       )}
 
-      {/* Tables Grid */}
-      {activeTab === 'fuel' ? (
-        filteredFuel.length === 0 ? (
-          <div className="bg-slate-900/30 border border-slate-800 rounded-xl p-12 text-center text-slate-500">
-            <Droplet className="h-12 w-12 mx-auto text-slate-700 mb-3" />
-            <p>No fuel receipts logged for the selected vehicle filter.</p>
+      {/* SECTION 1: Fuel Logs Table */}
+      <div className="space-y-4">
+        <div className="flex justify-between items-center border-b border-slate-850 pb-2">
+          <h2 className="text-lg font-bold text-slate-200 flex items-center space-x-2">
+            <Droplet className="h-4.5 w-4.5 text-blue-400" />
+            <span>Fuel Logs Registry</span>
+          </h2>
+          {isDriverOrManager && (
+            <button
+              onClick={() => setIsFuelModalOpen(true)}
+              className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg font-bold text-[10px] flex items-center space-x-1.5 transition-all shadow-lg shadow-blue-900/25 uppercase tracking-wider"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span>Log Fuel</span>
+            </button>
+          )}
+        </div>
+
+        {filteredFuel.length === 0 ? (
+          <div className="bg-slate-900/30 border border-slate-800 rounded-xl p-10 text-center text-slate-500 text-xs">
+            <Droplet className="h-10 w-10 mx-auto text-slate-700 mb-2" />
+            <p>No fuel receipts logged for this filter.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto border border-slate-850 bg-slate-900/20 rounded-xl">
-            <table className="w-full text-left border-collapse text-sm">
+          <div className="overflow-x-auto border border-slate-850 bg-slate-900/20 rounded-xl shadow-lg">
+            <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="border-b border-slate-800 bg-slate-900/50 text-slate-400 font-semibold">
-                  <th className="py-3.5 px-5">Vehicle</th>
-                  <th className="py-3.5 px-5">Date</th>
-                  <th className="py-3.5 px-5 text-right">Liters</th>
-                  <th className="py-3.5 px-5 text-right">Cost</th>
-                  {isDriverOrManager && <th className="py-3.5 px-5 text-center">Actions</th>}
+                <tr className="border-b border-slate-800 bg-slate-900/50 text-slate-400 font-semibold uppercase tracking-wider">
+                  <th className="py-3 px-4">Vehicle</th>
+                  <th className="py-3 px-4">Date</th>
+                  <th className="py-3 px-4 text-right">Liters</th>
+                  <th className="py-3 px-4 text-right">Cost</th>
+                  {isDriverOrManager && <th className="py-3 px-4 text-center">Actions</th>}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-850 text-slate-300">
+              <tbody className="divide-y divide-slate-850 text-slate-350 font-medium">
                 {filteredFuel.map((log) => (
-                  <tr key={log.id} className="hover:bg-slate-900/40 transition-colors">
-                    <td className="py-3 px-5 font-semibold text-slate-200">
+                  <tr key={log.id} className="hover:bg-slate-950/20 transition-colors">
+                    <td className="py-3 px-4 font-bold text-slate-200">
                       {log.vehicles ? `${log.vehicles.name_model} (${log.vehicles.registration_number})` : 'Deleted Vehicle'}
                     </td>
-                    <td className="py-3 px-5">{log.date}</td>
-                    <td className="py-3 px-5 text-right">{log.liters} L</td>
-                    <td className="py-3 px-5 text-right font-bold text-blue-400">${log.cost.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                    <td className="py-3 px-4 text-slate-400">{log.date}</td>
+                    <td className="py-3 px-4 text-right font-mono text-slate-300">{log.liters} L</td>
+                    <td className="py-3 px-4 text-right font-bold text-blue-400">${log.cost.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                     {isDriverOrManager && (
-                      <td className="py-3 px-5 text-center">
+                      <td className="py-3 px-4 text-center">
                         <button
                           onClick={() => handleDeleteFuel(log.id)}
-                          className="text-red-400 hover:text-red-300 p-1 rounded hover:bg-red-500/10 transition-all"
+                          className="text-red-400 hover:text-red-305 p-1 rounded hover:bg-red-500/10 transition-all ml-auto block mr-auto"
                         >
-                          <Trash2 className="h-4 w-4" />
+                          <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       </td>
                     )}
@@ -371,60 +361,110 @@ export default function ExpensesClient({ initialFuelLogs, initialExpenses, userR
               </tbody>
             </table>
           </div>
-        )
-      ) : (
-        filteredExpenses.length === 0 ? (
-          <div className="bg-slate-900/30 border border-slate-800 rounded-xl p-12 text-center text-slate-500">
-            <Coins className="h-12 w-12 mx-auto text-slate-700 mb-3" />
-            <p>No expense logs found for the selected vehicle filter.</p>
+        )}
+      </div>
+
+      {/* SECTION 2: Other Expenses (Toll/Misc) Table */}
+      <div className="space-y-4">
+        <div className="flex justify-between items-center border-b border-slate-850 pb-2">
+          <h2 className="text-lg font-bold text-slate-200 flex items-center space-x-2">
+            <Coins className="h-4.5 w-4.5 text-indigo-400" />
+            <span>Other Expenses & Linked Maintenance</span>
+          </h2>
+          {isDriverOrManager && (
+            <button
+              onClick={() => setIsExpenseModalOpen(true)}
+              className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg font-bold text-[10px] flex items-center space-x-1.5 transition-all shadow-lg shadow-indigo-900/25 uppercase tracking-wider"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span>Add Expense</span>
+            </button>
+          )}
+        </div>
+
+        {filteredExpenses.length === 0 ? (
+          <div className="bg-slate-900/30 border border-slate-800 rounded-xl p-10 text-center text-slate-500 text-xs">
+            <Coins className="h-10 w-10 mx-auto text-slate-700 mb-2" />
+            <p>No expense logs found for this filter.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto border border-slate-850 bg-slate-900/20 rounded-xl">
-            <table className="w-full text-left border-collapse text-sm">
+          <div className="overflow-x-auto border border-slate-850 bg-slate-900/20 rounded-xl shadow-lg">
+            <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="border-b border-slate-800 bg-slate-900/50 text-slate-400 font-semibold">
-                  <th className="py-3.5 px-5">Vehicle</th>
-                  <th className="py-3.5 px-5">Date</th>
-                  <th className="py-3.5 px-5">Expense Type</th>
-                  <th className="py-3.5 px-5 text-right">Amount</th>
-                  {isDriverOrManager && <th className="py-3.5 px-5 text-center">Actions</th>}
+                <tr className="border-b border-slate-800 bg-slate-900/50 text-slate-400 font-semibold uppercase tracking-wider">
+                  <th className="py-3 px-4">Trip</th>
+                  <th className="py-3 px-4">Vehicle</th>
+                  <th className="py-3 px-4 text-right">Toll</th>
+                  <th className="py-3 px-4 text-right">Other</th>
+                  <th className="py-3 px-4 text-right">Maint (linked)</th>
+                  <th className="py-3 px-4 text-right">Total</th>
+                  {isDriverOrManager && <th className="py-3 px-4 text-center">Actions</th>}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-850 text-slate-300">
-                {filteredExpenses.map((exp) => (
-                  <tr key={exp.id} className="hover:bg-slate-900/40 transition-colors">
-                    <td className="py-3 px-5 font-semibold text-slate-200">
-                      {exp.vehicles ? `${exp.vehicles.name_model} (${exp.vehicles.registration_number})` : 'Deleted Vehicle'}
-                    </td>
-                    <td className="py-3 px-5">{exp.date}</td>
-                    <td className="py-3 px-5">
-                      <span className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded text-xs font-semibold ${
-                        exp.type === 'toll' 
-                          ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' 
-                          : 'bg-slate-500/10 text-slate-350 border border-slate-500/20'
-                      }`}>
-                        <Tag className="h-3 w-3 mr-0.5" />
-                        <span className="capitalize">{exp.type}</span>
-                      </span>
-                    </td>
-                    <td className="py-3 px-5 text-right font-bold text-indigo-400">${exp.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                    {isDriverOrManager && (
-                      <td className="py-3 px-5 text-center">
-                        <button
-                          onClick={() => handleDeleteExpense(exp.id)}
-                          className="text-red-400 hover:text-red-300 p-1 rounded hover:bg-red-500/10 transition-all"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+              <tbody className="divide-y divide-slate-850 text-slate-350 font-medium">
+                {filteredExpenses.map((exp) => {
+                  const tollCost = exp.type === 'toll' ? exp.amount : 0
+                  const otherCost = exp.type === 'other' ? exp.amount : 0
+                  const linkedMaint = getLinkedMaintCost(exp.vehicle_id, exp.date)
+                  const total = tollCost + otherCost + linkedMaint
+
+                  return (
+                    <tr key={exp.id} className="hover:bg-slate-950/20 transition-colors">
+                      <td className="py-3 px-4 text-slate-500 font-mono">-</td>
+                      <td className="py-3 px-4 font-bold text-slate-200">
+                        {exp.vehicles ? `${exp.vehicles.name_model} (${exp.vehicles.registration_number})` : 'Deleted Vehicle'}
                       </td>
-                    )}
-                  </tr>
-                ))}
+                      <td className="py-3 px-4 text-right text-slate-300">
+                        {tollCost > 0 ? `$${tollCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '-'}
+                      </td>
+                      <td className="py-3 px-4 text-right text-slate-300">
+                        {otherCost > 0 ? `$${otherCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '-'}
+                      </td>
+                      <td className="py-3 px-4 text-right text-slate-400 font-semibold">
+                        {linkedMaint > 0 ? (
+                          <span className="text-amber-400 font-bold">
+                            ${linkedMaint.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                          </span>
+                        ) : '-'}
+                      </td>
+                      <td className="py-3 px-4 text-right font-bold text-slate-100">
+                        ${total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </td>
+                      {isDriverOrManager && (
+                        <td className="py-3 px-4 text-center">
+                          <button
+                            onClick={() => handleDeleteExpense(exp.id)}
+                            className="text-red-400 hover:text-red-305 p-1 rounded hover:bg-red-500/10 transition-all ml-auto block mr-auto"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
-        )
-      )}
+        )}
+      </div>
+
+      {/* Aggregate Cost summary card */}
+      <div className="bg-slate-900/40 border border-slate-850 rounded-xl p-5 shadow-lg flex flex-col sm:flex-row justify-between items-center gap-4">
+        <div className="flex items-center space-x-3">
+          <div className="p-2.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400">
+            <Coins className="h-5.5 w-5.5" />
+          </div>
+          <div>
+            <span className="text-slate-500 text-[10px] uppercase tracking-wider block font-bold">Total Operational Cost (Auto)</span>
+            <span className="text-[10px] text-slate-400">Calculated sum = Fuel Receipts (${totalFuelCost.toLocaleString()}) + Service Records (${totalMaintCost.toLocaleString()})</span>
+          </div>
+        </div>
+        <div className="flex items-baseline space-x-3 bg-slate-950/50 py-2 px-4 rounded-lg border border-slate-850">
+          <span className="text-xs text-slate-500 font-bold uppercase tracking-wider">Total Op Cost:</span>
+          <span className="text-xl font-extrabold text-slate-100">${totalOpCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+        </div>
+      </div>
 
       {/* Fuel Modal */}
       {isFuelModalOpen && (

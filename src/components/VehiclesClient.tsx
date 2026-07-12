@@ -307,6 +307,10 @@ export default function VehiclesClient({ initialVehicles, userRole }: VehiclesCl
         </select>
       </div>
 
+      <p className="text-xs text-slate-500 pl-1">
+        Rule: Registration No. must be unique • Retired/In Shop vehicles are hidden from Trip Dispatcher.
+      </p>
+
       {/* Grid of Vehicles */}
       {filteredVehicles.length === 0 ? (
         <div className="bg-slate-900/30 border border-slate-800 rounded-xl p-12 text-center text-slate-500">

@@ -21,6 +21,7 @@ interface Vehicle {
   name_model: string
   acquisition_cost: number
   type: string
+  status: string
 }
 
 interface MaintenanceLog {
@@ -150,10 +151,28 @@ export default function ReportsClient({ vehicles, maintenanceLogs, fuelLogs, tri
     document.body.removeChild(link)
   }
 
-  // General Summary totals
+  // General Summary totals & KPIs
+  const completedTrips = trips.filter(t => t.status === 'Completed')
+  const fleetTotalDistance = completedTrips.reduce((sum, t) => sum + t.planned_distance, 0)
+  const fleetTotalFuel = completedTrips.reduce((sum, t) => sum + (t.fuel_consumed || 0), 0)
+  const avgFuelEfficiency = fleetTotalFuel > 0 
+    ? (fleetTotalDistance / fleetTotalFuel).toFixed(2) 
+    : '0.00'
+
+  const activeVehiclesCount = vehicles.filter(v => v.status === 'On Trip').length
+  const nonRetiredVehiclesCount = vehicles.filter(v => v.status !== 'Retired').length
+  const utilizationRate = nonRetiredVehiclesCount > 0 
+    ? Math.round((activeVehiclesCount / nonRetiredVehiclesCount) * 100) 
+    : 0
+
   const totalFleetCost = reportData.reduce((sum, item) => sum + item.totalOperationalCost, 0)
   const totalFleetRevenue = reportData.reduce((sum, item) => sum + item.totalRevenue, 0)
   const totalFleetProfit = totalFleetRevenue - totalFleetCost
+
+  const totalAcquisitionCost = vehicles.reduce((sum, v) => sum + v.acquisition_cost, 0)
+  const fleetRoi = totalAcquisitionCost > 0 
+    ? ((totalFleetProfit / totalAcquisitionCost) * 100).toFixed(1) 
+    : '0.0'
 
   return (
     <div className="space-y-6">
@@ -172,35 +191,49 @@ export default function ReportsClient({ vehicles, maintenanceLogs, fuelLogs, tri
         </button>
       </div>
 
-      {/* Summary KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+      {/* Summary KPI Cards - 4 Columns */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* Average Fuel Efficiency */}
         <div className="bg-slate-900/40 border border-slate-850 rounded-xl p-5 shadow-lg flex items-center space-x-4">
           <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400">
-            <DollarSign className="h-6 w-6" />
+            <Droplet className="h-6 w-6" />
           </div>
           <div>
-            <span className="text-slate-500 text-xs uppercase tracking-wider block font-semibold">Total Fleet Revenue</span>
-            <span className="text-xl font-bold text-slate-100 block mt-0.5">${totalFleetRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+            <span className="text-slate-500 text-xs uppercase tracking-wider block font-semibold">Fuel Efficiency</span>
+            <span className="text-xl font-bold text-slate-100 block mt-0.5">{avgFuelEfficiency} km/L</span>
           </div>
         </div>
 
+        {/* Fleet Utilization */}
+        <div className="bg-slate-900/40 border border-slate-850 rounded-xl p-5 shadow-lg flex items-center space-x-4">
+          <div className="p-3 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
+            <Gauge className="h-6 w-6" />
+          </div>
+          <div>
+            <span className="text-slate-500 text-xs uppercase tracking-wider block font-semibold">Fleet Utilization</span>
+            <span className="text-xl font-bold text-slate-100 block mt-0.5">{utilizationRate}%</span>
+          </div>
+        </div>
+
+        {/* Total Operational Cost */}
         <div className="bg-slate-900/40 border border-slate-850 rounded-xl p-5 shadow-lg flex items-center space-x-4">
           <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400">
             <Coins className="h-6 w-6" />
           </div>
           <div>
-            <span className="text-slate-500 text-xs uppercase tracking-wider block font-semibold">Total Operational Cost</span>
-            <span className="text-xl font-bold text-slate-100 block mt-0.5">${totalFleetCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+            <span className="text-slate-500 text-xs uppercase tracking-wider block font-semibold">Operational Cost</span>
+            <span className="text-xl font-bold text-slate-100 block mt-0.5">${totalFleetCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
           </div>
         </div>
 
+        {/* Vehicle ROI */}
         <div className="bg-slate-900/40 border border-slate-850 rounded-xl p-5 shadow-lg flex items-center space-x-4">
-          <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+          <div className={`p-3 rounded-lg border text-emerald-400 bg-emerald-500/10 border-emerald-500/20`}>
             <TrendingUp className="h-6 w-6" />
           </div>
           <div>
-            <span className="text-slate-500 text-xs uppercase tracking-wider block font-semibold">Net Fleet Profit</span>
-            <span className="text-xl font-bold text-slate-100 block mt-0.5">${totalFleetProfit.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+            <span className="text-slate-500 text-xs uppercase tracking-wider block font-semibold">Average Vehicle ROI</span>
+            <span className={`text-xl font-bold block mt-0.5 ${parseFloat(fleetRoi) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{parseFloat(fleetRoi) >= 0 ? '+' : ''}{fleetRoi}%</span>
           </div>
         </div>
       </div>

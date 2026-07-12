@@ -34,11 +34,17 @@ export default async function ExpensesPage() {
     .select('*, vehicles(name_model, registration_number)')
     .order('date', { ascending: false })
 
+  // Fetch maintenance logs details for calculation and display
+  const { data: maintenanceLogs } = await supabase
+    .from('maintenance_logs')
+    .select('cost, vehicle_id, created_at')
+
   return (
     <ExpensesClient 
       initialFuelLogs={(fuelLogs || []) as any[]} 
       initialExpenses={(expenses || []) as any[]} 
       userRole={role} 
+      maintenanceLogs={(maintenanceLogs || []) as any[]}
     />
   )
 }

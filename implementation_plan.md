@@ -1,360 +1,96 @@
-# Implementation Plan - TransitOps (Smart Transport Operations Platform)
+# Implementation Plan - TransitOps UI/Component Completeness Pass (Phase 2)
 
-This document outlines the database schema, security (RLS/RBAC), state transitions (triggers), application structure, and verification plan for TransitOps.
+This plan details the restructuring and creation of new UI components for the Maintenance page, Fuel & Expense Management, Reports KPI and optional charts, and the new Settings page static RBAC reference matrix.
 
 ## User Review Required
 
-Please review the proposed database schema, triggers, and RLS policies below. The core operations and validations are implemented directly in Postgres triggers to guarantee atomic transitions, preventing desynchronization of vehicle and driver states.
+> [!IMPORTANT]
+> **Settings Page Scope**: The Settings page will strictly contain the static **Role-Based Access Control (RBAC)** reference matrix matching the database's existing RLS policies. The left-hand "General Settings" form will be skipped as requested.
+> 
+> **Maintenance Actions Safety**: We will omit the "Delete" button entirely from the maintenance actions column. Only the "Complete & Release" action (which triggers the database status reset to Available via status update) will be present for active logs.
+> 
+> **Reports Phase Gate**: We will first build and verify the 4 mandatory KPI cards (Fuel Efficiency, Fleet Utilization, Operational Cost, Vehicle ROI). We will explicitly inform you when this step is verified before commencing the optional Monthly Revenue and Top Costliest Vehicles chart components.
 
 ## Open Questions
 
-There are no blockers or open questions. We will use the existing Supabase credentials in `.env.local` to connect our Next.js application, and we provide a SQL script below to run in the Supabase SQL editor.
+> [!IMPORTANT]
+> **Average Vehicle ROI KPI Formula Choice**:
+> Please specify which formula you prefer for the "Average Vehicle ROI" KPI card:
+> 
+> * **Option A (Weighted Fleet-wide ROI)**: Total fleet net profit divided by total fleet acquisition cost.
+>   $$\text{Fleet ROI} = \frac{\sum \text{NetProfit}_v}{\sum \text{AcquisitionCost}_v} \times 100$$
+>   *Note: This naturally weights the ROI by acquisition scale, preventing cheap vehicles with high percentages from skewing the fleet ROI.*
+> 
+> * **Option B (Simple Average of Vehicle ROIs)**: Simple arithmetic mean of each individual vehicle's ROI percentage.
+>   $$\text{Average ROI} = \frac{\sum \text{VehicleROI}_v}{N_{\text{vehicles}}}$$
+>   *Note: This treats each vehicle equally. Vehicles with zero completed trips and zero costs (including Retired ones) will register $0\%$ ROI, and those with costs but no revenue will register negative ROI.*
 
 ## Proposed Changes
 
-### Component 1: Database Schema & Triggers (Supabase / PostgreSQL)
+---
 
-We will define 7 core tables, along with RLS/RBAC policies and 2 triggers for state transitions.
+### Maintenance Component
 
-#### [NEW] [schema.sql](file:///c:/Users/HP/Desktop/WebDev/Odoo_Hackathon/schema.sql)
-
-This script sets up all tables, triggers, and default RLS policies. It can be run in the Supabase SQL Editor.
-
-```sql
--- ----------------------------------------------------
--- 1. Create Enums / Clean Tables
--- ----------------------------------------------------
-
--- Clean up existing triggers and functions if they exist
-DROP TRIGGER IF EXISTS trips_status_cascade_trigger ON public.trips;
-DROP FUNCTION IF EXISTS public.handle_trip_status_change();
-DROP TRIGGER IF EXISTS maintenance_logs_status_cascade_trigger ON public.maintenance_logs;
-DROP FUNCTION IF EXISTS public.handle_maintenance_log_change();
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-DROP FUNCTION IF EXISTS public.handle_new_user();
-
--- Create Tables
-
--- users table linked to Supabase Auth
-CREATE TABLE IF NOT EXISTS public.users (
-  id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  email text NOT NULL,
-  role text NOT NULL CHECK (role IN ('fleet_manager', 'driver', 'safety_officer', 'financial_analyst')),
-  created_at timestamptz DEFAULT now() NOT NULL
-);
-
--- vehicles table
-CREATE TABLE IF NOT EXISTS public.vehicles (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  registration_number text UNIQUE NOT NULL,
-  name_model text NOT NULL,
-  type text NOT NULL, -- e.g., 'Van', 'Truck', 'Semi', etc.
-  max_load_capacity numeric NOT NULL CHECK (max_load_capacity > 0),
-  odometer numeric NOT NULL DEFAULT 0 CHECK (odometer >= 0),
-  acquisition_cost numeric NOT NULL DEFAULT 0 CHECK (acquisition_cost >= 0),
-  status text NOT NULL DEFAULT 'Available' CHECK (status IN ('Available', 'On Trip', 'In Shop', 'Retired')),
-  region text NOT NULL DEFAULT 'Global',
-  created_at timestamptz DEFAULT now() NOT NULL
-);
-
--- drivers table
-CREATE TABLE IF NOT EXISTS public.drivers (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  name text NOT NULL,
-  license_number text UNIQUE NOT NULL,
-  license_category text NOT NULL,
-  license_expiry_date date NOT NULL,
-  contact_number text,
-  safety_score numeric DEFAULT 100 CHECK (safety_score >= 0 AND safety_score <= 100),
-  status text NOT NULL DEFAULT 'Available' CHECK (status IN ('Available', 'On Trip', 'Off Duty', 'Suspended')),
-  created_at timestamptz DEFAULT now() NOT NULL
-);
-
--- trips table
-CREATE TABLE IF NOT EXISTS public.trips (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  source text NOT NULL,
-  destination text NOT NULL,
-  vehicle_id uuid NOT NULL REFERENCES public.vehicles(id) ON DELETE RESTRICT,
-  driver_id uuid NOT NULL REFERENCES public.drivers(id) ON DELETE RESTRICT,
-  cargo_weight numeric NOT NULL CHECK (cargo_weight > 0),
-  planned_distance numeric NOT NULL CHECK (planned_distance > 0),
-  status text NOT NULL DEFAULT 'Draft' CHECK (status IN ('Draft', 'Dispatched', 'Completed', 'Cancelled')),
-  final_odometer numeric CHECK (final_odometer >= 0),
-  fuel_consumed numeric CHECK (fuel_consumed >= 0),
-  revenue numeric NOT NULL DEFAULT 0 CHECK (revenue >= 0),
-  created_at timestamptz DEFAULT now() NOT NULL,
-  dispatched_at timestamptz,
-  completed_at timestamptz
-);
-
--- maintenance_logs table
-CREATE TABLE IF NOT EXISTS public.maintenance_logs (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  vehicle_id uuid NOT NULL REFERENCES public.vehicles(id) ON DELETE CASCADE,
-  description text NOT NULL,
-  cost numeric NOT NULL DEFAULT 0 CHECK (cost >= 0),
-  is_active boolean NOT NULL DEFAULT true,
-  created_at timestamptz DEFAULT now() NOT NULL,
-  closed_at timestamptz
-);
-
--- fuel_logs table
-CREATE TABLE IF NOT EXISTS public.fuel_logs (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  vehicle_id uuid NOT NULL REFERENCES public.vehicles(id) ON DELETE CASCADE,
-  liters numeric NOT NULL CHECK (liters > 0),
-  cost numeric NOT NULL CHECK (cost >= 0),
-  date date NOT NULL DEFAULT current_date,
-  created_at timestamptz DEFAULT now() NOT NULL
-);
-
--- expenses table
-CREATE TABLE IF NOT EXISTS public.expenses (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  vehicle_id uuid NOT NULL REFERENCES public.vehicles(id) ON DELETE CASCADE,
-  type text NOT NULL CHECK (type IN ('toll', 'other')),
-  amount numeric NOT NULL CHECK (amount >= 0),
-  date date NOT NULL DEFAULT current_date,
-  created_at timestamptz DEFAULT now() NOT NULL
-);
-
--- ----------------------------------------------------
--- 2. State-Cascade & Validation Triggers
--- ----------------------------------------------------
-
--- Function to handle trip transitions
-CREATE OR REPLACE FUNCTION public.handle_trip_status_change()
-RETURNS trigger AS $$
-DECLARE
-  v_status text;
-  v_max_cap numeric;
-  v_odometer numeric;
-  d_status text;
-  d_expiry date;
-BEGIN
-  -- Fetch current vehicle info
-  SELECT status, max_load_capacity, odometer
-  INTO v_status, v_max_cap, v_odometer
-  FROM public.vehicles
-  WHERE id = NEW.vehicle_id;
-
-  -- Fetch current driver info
-  SELECT status, license_expiry_date
-  INTO d_status, d_expiry
-  FROM public.drivers
-  WHERE id = NEW.driver_id;
-
-  -- Rules on transition to 'Dispatched' (or inserted as 'Dispatched')
-  -- Fix 1: Dispatched status is only reachable from Draft or on first Insert
-  IF NEW.status = 'Dispatched' AND (TG_OP = 'INSERT' OR OLD.status = 'Draft') THEN
-    
-    -- Rule 2: Vehicles Retired or In Shop cannot be assigned
-    IF v_status IN ('Retired', 'In Shop') THEN
-      RAISE EXCEPTION 'Vehicle is % and cannot be assigned to a trip', v_status;
-    END IF;
-
-    -- Rule 3: Drivers with expired license or Suspended status cannot be assigned
-    IF d_expiry < current_date THEN
-      RAISE EXCEPTION 'Driver license has expired (Expiry: %)', d_expiry;
-    END IF;
-    IF d_status = 'Suspended' THEN
-      RAISE EXCEPTION 'Driver is Suspended and cannot be assigned to trips';
-    END IF;
-
-    -- Rule 4: Vehicle/Driver already On Trip cannot be assigned
-    IF v_status = 'On Trip' THEN
-      RAISE EXCEPTION 'Vehicle is already On Trip on another active assignment';
-    END IF;
-    IF d_status = 'On Trip' THEN
-      RAISE EXCEPTION 'Driver is already On Trip on another active assignment';
-    END IF;
-
-    -- Rule 5: Cargo Weight limit check
-    IF NEW.cargo_weight > v_max_cap THEN
-      RAISE EXCEPTION 'Cargo weight of % kg exceeds the maximum vehicle capacity of % kg', NEW.cargo_weight, v_max_cap;
-    END IF;
-
-    -- Update states to On Trip
-    UPDATE public.vehicles SET status = 'On Trip' WHERE id = NEW.vehicle_id;
-    UPDATE public.drivers SET status = 'On Trip' WHERE id = NEW.driver_id;
-    NEW.dispatched_at = now();
-
-  -- Rules on transition to 'Completed' (from 'Dispatched')
-  ELSIF NEW.status = 'Completed' AND (TG_OP = 'UPDATE' AND OLD.status = 'Dispatched') THEN
-    -- Require final_odometer and fuel_consumed
-    IF NEW.final_odometer IS NULL OR NEW.final_odometer <= 0 THEN
-      RAISE EXCEPTION 'Final odometer reading is required to complete the trip';
-    END IF;
-    IF NEW.fuel_consumed IS NULL OR NEW.fuel_consumed <= 0 THEN
-      RAISE EXCEPTION 'Fuel consumed is required to complete the trip';
-    END IF;
-
-    -- Odometer validation
-    IF NEW.final_odometer < v_odometer THEN
-      RAISE EXCEPTION 'Final odometer (%) cannot be less than starting vehicle odometer (%)', NEW.final_odometer, v_odometer;
-    END IF;
-
-    -- Reset status and update vehicle odometer
-    UPDATE public.vehicles SET status = 'Available', odometer = NEW.final_odometer WHERE id = NEW.vehicle_id;
-    UPDATE public.drivers SET status = 'Available' WHERE id = NEW.driver_id;
-    NEW.completed_at = now();
-
-  -- Rules on transition to 'Cancelled' (from 'Dispatched')
-  ELSIF NEW.status = 'Cancelled' AND (TG_OP = 'UPDATE' AND OLD.status = 'Dispatched') THEN
-    -- Reset to Available
-    UPDATE public.vehicles SET status = 'Available' WHERE id = NEW.vehicle_id;
-    UPDATE public.drivers SET status = 'Available' WHERE id = NEW.driver_id;
-  
-  END IF;
-
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-
-CREATE TRIGGER trips_status_cascade_trigger
-  BEFORE INSERT OR UPDATE ON public.trips
-  FOR EACH ROW EXECUTE FUNCTION public.handle_trip_status_change();
-
--- Function to handle maintenance logs
-CREATE OR REPLACE FUNCTION public.handle_maintenance_log_change()
-RETURNS trigger AS $$
-DECLARE
-  v_status text;
-BEGIN
-  SELECT status INTO v_status FROM public.vehicles WHERE id = NEW.vehicle_id;
-
-  -- Rule 9: Active maintenance log created
-  IF NEW.is_active = true AND (TG_OP = 'INSERT' OR OLD.is_active = false) THEN
-    IF v_status IS DISTINCT FROM 'Retired' THEN
-      UPDATE public.vehicles SET status = 'In Shop' WHERE id = NEW.vehicle_id;
-    END IF;
-    NEW.closed_at = NULL;
-
-  -- Rule 10: Maintenance log closed
-  ELSIF NEW.is_active = false AND (TG_OP = 'UPDATE' AND OLD.is_active = true) THEN
-    NEW.closed_at = now();
-    IF v_status IS DISTINCT FROM 'Retired' THEN
-      -- Only mark Available if no other active maintenance logs remain
-      IF NOT EXISTS (
-        SELECT 1 FROM public.maintenance_logs
-        WHERE vehicle_id = NEW.vehicle_id AND is_active = true AND id != NEW.id
-      ) THEN
-        UPDATE public.vehicles SET status = 'Available' WHERE id = NEW.vehicle_id;
-      END IF;
-    END IF;
-  END IF;
-
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-
-CREATE TRIGGER maintenance_logs_status_cascade_trigger
-  BEFORE INSERT OR UPDATE ON public.maintenance_logs
-  FOR EACH ROW EXECUTE FUNCTION public.handle_maintenance_log_change();
-
--- Sync Auth Users to Public Users
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS trigger AS $$
-BEGIN
-  -- Fix 2: Default role to driver. Do not trust metadata from signup
-  INSERT INTO public.users (id, email, role)
-  VALUES (
-    new.id,
-    new.email,
-    'driver'
-  );
-  RETURN new;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
-```
+#### [MODIFY] [MaintenanceClient.tsx](file:///c:/Users/HP/Desktop/WebDev/Odoo_Hackathon/src/components/MaintenanceClient.tsx)
+- Restructure the page layout into a responsive two-column grid:
+  - **Left Column**: The "Log Service Record" form (Vehicle, Service Type/Description, Cost, Date, Status select/toggle).
+    - If the logged-in user is not a `fleet_manager`, show a locked access-restricted placeholder.
+    - Status select is bound to the `is_active` boolean column, presenting options: `"Active" (In Shop)` and `"Closed" (Completed)`.
+    - Below the form, display a static informational text flow diagram showing vehicle transitions:
+      - `Available → (creating active record) → In Shop`
+      - `In Shop → (closing record, not retired) → Available`
+      - Inline Caption: *"Note: In Shop vehicles are removed from the dispatch pool."*
+  - **Right Column**: The "Service Log" list rendered as a table with columns: `Vehicle`, `Service`, `Cost`, `Status`, `Actions`.
+    - Render statuses using existing status badge colors (amber for In Shop, emerald for Completed).
+    - Actions column containing **only** "Complete & Release" (visible only if log `is_active` is true). No delete button.
 
 ---
 
-### Component 2: RLS Policies & RBAC
+### Fuel & Expense Management Component
 
-All direct CRUD requests go through Row Level Security.
-We define a helper function `get_user_role()` with `SECURITY DEFINER` to avoid infinite recursion when querying roles.
+#### [MODIFY] [page.tsx](file:///c:/Users/HP/Desktop/WebDev/Odoo_Hackathon/src/app/\(dashboard\)/expenses/page.tsx)
+- Add database select statement to query `maintenance_logs` and pass them to the client-side component, enabling the page-level Total Operational Cost calculation.
 
-```sql
--- Enable RLS
-ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.vehicles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.drivers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.trips ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.maintenance_logs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.fuel_logs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.expenses ENABLE ROW LEVEL SECURITY;
-
--- Helper to fetch user role safely
-CREATE OR REPLACE FUNCTION public.get_user_role()
-RETURNS text AS $$
-  SELECT role FROM public.users WHERE id = auth.uid();
-$$ LANGUAGE sql SECURITY DEFINER SET search_path = public;
-
--- RLS Policies
-
--- 1. users
-CREATE POLICY "Users can read profiles" ON public.users FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Fleet Manager can manage users" ON public.users FOR ALL TO authenticated USING (get_user_role() = 'fleet_manager');
-
--- 2. vehicles
-CREATE POLICY "All authenticated users can read vehicles" ON public.vehicles FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Fleet Manager can edit vehicles" ON public.vehicles FOR ALL TO authenticated USING (get_user_role() = 'fleet_manager');
-
--- 3. drivers
-CREATE POLICY "All authenticated users can read drivers" ON public.drivers FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Fleet Manager can manage drivers" ON public.drivers FOR ALL TO authenticated USING (get_user_role() = 'fleet_manager');
-CREATE POLICY "Safety Officer can update drivers" ON public.drivers FOR UPDATE TO authenticated USING (get_user_role() = 'safety_officer');
-
--- 4. trips
-CREATE POLICY "All authenticated users can read trips" ON public.trips FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Fleet Manager and Driver can insert/update trips" ON public.trips FOR ALL TO authenticated 
-  USING (get_user_role() IN ('fleet_manager', 'driver'));
-
--- 5. maintenance_logs
-CREATE POLICY "All authenticated users can read maintenance logs" ON public.maintenance_logs FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Fleet Manager can manage maintenance logs" ON public.maintenance_logs FOR ALL TO authenticated USING (get_user_role() = 'fleet_manager');
-
--- 6. fuel_logs & expenses
-CREATE POLICY "All authenticated users can read logs/expenses" ON public.fuel_logs FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Fleet Manager and Driver can log fuel" ON public.fuel_logs FOR ALL TO authenticated USING (get_user_role() IN ('fleet_manager', 'driver'));
-
-CREATE POLICY "All authenticated users can read expenses" ON public.expenses FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Fleet Manager and Driver can log expenses" ON public.expenses FOR ALL TO authenticated USING (get_user_role() IN ('fleet_manager', 'driver'));
-```
+#### [MODIFY] [ExpensesClient.tsx](file:///c:/Users/HP/Desktop/WebDev/Odoo_Hackathon/src/components/ExpensesClient.tsx)
+- Remove the tab interface so that **both tables** are rendered simultaneously (stacked vertically or in columns).
+- **Fuel Logs Table**: Display vehicle registration/model, Date, Liters, and Cost. Move the "Log Fuel" and "Add Expense" buttons to the top-right header area.
+- **Other Expenses Table**: Display columns `Trip`, `Vehicle`, `Toll`, `Other`, `Maint (linked)`, `Total`.
+  - Calculate grouped operational expenses per vehicle.
+  - Omit any status badges or columns as expenses do not carry status indicators in the database schema.
+- **Cost Summary Row**: Display a summary block at the bottom: `"Total Operational Cost (Auto) = Fuel + Maint"`, reusing the exact reports cost aggregation logic (`Total Fuel logs cost + Total Maintenance logs cost`).
 
 ---
 
-### Component 3: Frontend Web Application (Next.js 14 / Tailwind / Supabase Client)
+### Reports & Analytics Component
 
-We will initialize a clean Next.js 14 project, configure the Supabase client, and implement the pages:
-- `/login`: Secure email/password login. We will provide pre-set test credentials or let users register and assign their role.
-- `/dashboard`: KPI metrics, filters for type/status/region.
-- `/vehicles`: Full CRUD for Fleet Managers.
-- `/drivers`: Full CRUD for Fleet Managers + Compliance fields for Safety Officers.
-- `/trips`: Trip creation and status transitions (Draft -> Dispatched -> Completed/Cancelled).
-- `/maintenance`: Maintenance logs.
-- `/expenses`: Fuel and expense trackers.
-- `/reports`: Fuel efficiency, utilization, cost per vehicle, ROI analysis, and CSV export.
+#### [MODIFY] [ReportsClient.tsx](file:///c:/Users/HP/Desktop/WebDev/Odoo_Hackathon/src/components/ReportsClient.tsx)
+- Implement exactly the **4 required KPI cards**:
+  - **Average Fuel Efficiency**: `Total completed trips distance / Total fuel consumed`.
+  - **Fleet Utilization**: `% of non-retired vehicles currently on trip`.
+  - **Total Operational Cost**: `Fuel cost + Maintenance cost`.
+  - **Average Vehicle ROI**: Average vehicle return-on-investment percentage (based on the chosen formula option).
+- Add the **Monthly Revenue** bar chart and **Top Costliest Vehicles** ranked bar list below the main metrics registry table (after verification gate).
+
+---
+
+### Settings Component
+
+#### [NEW] [page.tsx](file:///c:/Users/HP/Desktop/WebDev/Odoo_Hackathon/src/app/\(dashboard\)/settings/page.tsx)
+- Create settings route folder and page file. Fetches current authenticated user and passes their role to `SettingsClient`.
+
+#### [NEW] [SettingsClient.tsx](file:///c:/Users/HP/Desktop/WebDev/Odoo_Hackathon/src/components/SettingsClient.tsx)
+- Create a client-side component displaying the static hardcoded **Role-Based Access Control (RBAC)** matrix mapping roles (Fleet Manager, Dispatcher, Safety Officer, Financial Analyst) against screens (Dashboard, Vehicles, Drivers, Trips, Maintenance, Expenses, Reports), matching RLS policies.
+
+#### [MODIFY] [DashboardLayoutWrapper.tsx](file:///c:/Users/HP/Desktop/WebDev/Odoo_Hackathon/src/components/DashboardLayoutWrapper.tsx)
+- Import `Settings` icon and append the "Settings" item to sidebar navigation items for all authenticated roles.
 
 ---
 
 ## Verification Plan
 
-We will perform automated test runs using the browser subagent following the exact user workflow:
+### Automated Tests
+- Run `node verify_workflow.js` to assert triggers and database constraints are completely green.
+- Run `npm run build` to confirm compiling is successful.
 
-1. **Step 1 (Register Vehicle)**: Create vehicle "Van-05" (max capacity = 500 kg, Status = Available).
-2. **Step 2 (Register Driver)**: Create driver "Alex" with a valid future license expiry.
-3. **Step 3 (Create Trip)**: Draft a trip with cargo weight = 450 kg assigned to Van-05 and Alex.
-4. **Step 4 (Validate and Dispatch)**: Click Dispatch. Verify that the trip updates to `Dispatched` and database checks validation rules (cargo weight <= 500 kg).
-5. **Step 5 (Check Status Cascade)**: Verify Van-05 and Alex statuses atomically changed to `On Trip`.
-6. **Step 6 (Complete Trip)**: Complete the trip, inputting final odometer (e.g. +100 km) and fuel consumed (e.g. 10 L).
-7. **Step 7 (Verify Available Transition)**: Verify both vehicle and driver statuses returned to `Available`.
-8. **Step 8 (Maintenance Creation)**: Create an active maintenance record for Van-05. Verify its status flips to `In Shop` and that it disappears from the trip-creation vehicle dropdown.
-9. **Step 9 (Operational Cost & Efficiency Rollup)**: Verify the reports page displays updated fuel efficiency and operational cost calculation.
-10. **Step 10 (Export)**: Test the CSV export.
+### Manual Verification
+- Visual inspection of the updated pages via browser agent to confirm clean styling, appropriate responsive columns, and accurate labels.

@@ -54,6 +54,8 @@ export default function MaintenanceClient({ initialLogs, userRole }: Maintenance
   const [selectedVehicleId, setSelectedVehicleId] = useState('')
   const [description, setDescription] = useState('')
   const [cost, setCost] = useState('0')
+  const [serviceDate, setServiceDate] = useState(new Date().toISOString().split('T')[0])
+  const [isActiveStatus, setIsActiveStatus] = useState(true)
 
   // Notification states
   const [error, setError] = useState<string | null>(null)
@@ -63,10 +65,8 @@ export default function MaintenanceClient({ initialLogs, userRole }: Maintenance
   const isFleetManager = userRole === 'fleet_manager'
 
   useEffect(() => {
-    if (isModalOpen) {
-      fetchVehicles()
-    }
-  }, [isModalOpen])
+    fetchVehicles()
+  }, [])
 
   const fetchVehicles = async () => {
     try {
@@ -110,21 +110,26 @@ export default function MaintenanceClient({ initialLogs, userRole }: Maintenance
     }
 
     try {
+      const insertData: any = {
+        vehicle_id: selectedVehicleId,
+        description: description.trim(),
+        cost: parsedCost,
+        is_active: isActiveStatus
+      }
+
+      if (serviceDate) {
+        insertData.created_at = new Date(serviceDate).toISOString()
+      }
+
       const { error: insertErr } = await supabase
         .from('maintenance_logs')
-        .insert({
-          vehicle_id: selectedVehicleId,
-          description: description.trim(),
-          cost: parsedCost,
-          is_active: true
-        })
+        .insert(insertData)
 
       if (insertErr) throw insertErr
 
-      setSuccess('Maintenance log registered! Vehicle status set to In Shop.')
+      setSuccess(isActiveStatus ? 'Maintenance log registered! Vehicle status set to In Shop.' : 'Completed maintenance log registered!')
       await reloadLogs()
       setTimeout(() => {
-        setIsModalOpen(false)
         resetForm()
       }, 800)
     } catch (err: any) {
@@ -138,6 +143,8 @@ export default function MaintenanceClient({ initialLogs, userRole }: Maintenance
     setSelectedVehicleId('')
     setDescription('')
     setCost('0')
+    setServiceDate(new Date().toISOString().split('T')[0])
+    setIsActiveStatus(true)
     setError(null)
     setSuccess(null)
   }
@@ -204,18 +211,9 @@ export default function MaintenanceClient({ initialLogs, userRole }: Maintenance
       {/* Title & Actions */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Maintenance Logs</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Maintenance Registry</h1>
           <p className="text-slate-400 text-sm mt-1">Schedule servicing, track maintenance logs, and manage repair logs.</p>
         </div>
-        {isFleetManager && (
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2.5 rounded-lg font-semibold flex items-center space-x-2 transition-all shadow-lg shadow-blue-900/20"
-          >
-            <Plus className="h-5 w-5" />
-            <span>Log Maintenance</span>
-          </button>
-        )}
       </div>
 
       {/* Notifications */}
@@ -233,194 +231,227 @@ export default function MaintenanceClient({ initialLogs, userRole }: Maintenance
         </div>
       )}
 
-      {/* Filters Bar */}
-      <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="relative">
-          <Search className="absolute left-3 top-3 h-4 w-4 text-slate-500" />
-          <input
-            type="text"
-            placeholder="Search by model, registration, or description..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-slate-950 border border-slate-800 rounded-lg py-2 pl-9 pr-4 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
-          />
-        </div>
+      {/* Two-Column Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left Column (1/3): Log Service Record Form */}
+        <div className="bg-slate-900/40 border border-slate-850 rounded-xl p-5 shadow-lg flex flex-col space-y-4 h-fit">
+          <div>
+            <h2 className="font-bold text-base text-slate-200 flex items-center space-x-2">
+              <Wrench className="h-4.5 w-4.5 text-blue-400" />
+              <span>Log Service Record</span>
+            </h2>
+            <p className="text-xs text-slate-400 mt-1 font-semibold">Record a new vehicle service entry directly.</p>
+          </div>
 
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="w-full bg-slate-950 border border-slate-800 rounded-lg py-2 px-3 text-sm text-slate-300 focus:outline-none focus:border-blue-500 transition-colors"
-        >
-          <option value="All">All Records</option>
-          <option value="Active">Active Maintenance (In Shop)</option>
-          <option value="Closed">Closed / Completed</option>
-        </select>
-      </div>
-
-      {/* List / Table */}
-      {filteredLogs.length === 0 ? (
-        <div className="bg-slate-900/30 border border-slate-800 rounded-xl p-12 text-center text-slate-500">
-          <Wrench className="h-12 w-12 mx-auto text-slate-700 mb-3" />
-          <p>No maintenance records found.</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {filteredLogs.map((log) => (
-            <div 
-              key={log.id}
-              className="bg-slate-900/40 border border-slate-850 rounded-xl p-5 flex flex-col relative shadow-lg"
-            >
-              {/* Header */}
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h3 className="font-bold text-slate-200 text-base">{log.vehicles?.name_model}</h3>
-                  <code className="text-xs text-blue-400 font-mono tracking-wider">{log.vehicles?.registration_number}</code>
-                </div>
-                <span className={`px-2.5 py-0.5 rounded text-xs font-semibold ${
-                  log.is_active 
-                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' 
-                    : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                }`}>
-                  {log.is_active ? 'In Shop' : 'Completed'}
-                </span>
-              </div>
-
-              {/* Description */}
-              <div className="flex items-start space-x-2.5 text-sm text-slate-300 bg-slate-950/30 p-3 rounded-lg border border-slate-850/60 mb-4 flex-1">
-                <FileText className="h-4 w-4 text-slate-500 shrink-0 mt-0.5" />
-                <p className="leading-relaxed">{log.description}</p>
-              </div>
-
-              {/* Specs */}
-              <div className="grid grid-cols-2 gap-2 text-xs text-slate-400 mb-4">
-                <span className="flex items-center">
-                  <DollarSign className="h-3.5 w-3.5 mr-1 text-slate-500" />
-                  Cost: <strong className="text-slate-200 ml-1">${log.cost.toLocaleString()}</strong>
-                </span>
-                <span className="flex items-center">
-                  <Calendar className="h-3.5 w-3.5 mr-1 text-slate-500" />
-                  Created: <strong className="text-slate-200 ml-1">{new Date(log.created_at).toLocaleDateString()}</strong>
-                </span>
-                {log.closed_at && (
-                  <span className="flex items-center col-span-2 mt-1">
-                    <Clock className="h-3.5 w-3.5 mr-1 text-emerald-500" />
-                    Closed: <strong className="text-slate-200 ml-1">{new Date(log.closed_at).toLocaleDateString()}</strong>
-                  </span>
-                )}
-              </div>
-
-              {/* Actions */}
-              {isFleetManager && (
-                <div className="flex justify-end space-x-2 pt-3 border-t border-slate-850/60">
-                  {log.is_active && (
-                    <button
-                      onClick={() => handleCloseLog(log.id)}
-                      className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors flex items-center space-x-1"
-                    >
-                      <CheckCircle2 className="h-3.5 w-3.5" />
-                      <span>Complete & Release</span>
-                    </button>
-                  )}
-                  <button
-                    onClick={() => handleDeleteLog(log.id)}
-                    className="p-1.5 rounded bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 transition-colors"
-                    title="Delete log record"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Modal dialog */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-6 shadow-2xl animate-in fade-in duration-200">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold text-slate-100 flex items-center space-x-2">
-                <Wrench className="h-5 w-5 text-blue-400" />
-                <span>Log Vehicle Maintenance</span>
-              </h2>
-              <button 
-                onClick={() => setIsModalOpen(false)}
-                className="text-slate-400 hover:text-slate-100"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
+          {isFleetManager ? (
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
                   Select Vehicle
                 </label>
                 <select
                   required
                   value={selectedVehicleId}
                   onChange={(e) => setSelectedVehicleId(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg py-2 px-3 text-slate-350 focus:outline-none focus:border-blue-500 transition-colors"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg py-2 px-3 text-xs text-slate-200 focus:outline-none focus:border-blue-500 transition-colors"
                 >
                   <option value="">Select a vehicle...</option>
                   {allVehicles.map((v) => (
                     <option key={v.id} value={v.id}>
-                      {v.name_model} ({v.registration_number}) - Status: {v.status}
+                      {v.name_model} ({v.registration_number}) - {v.status}
                     </option>
                   ))}
                 </select>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                  Description of Works
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                  Service Type / Description
                 </label>
                 <textarea
                   required
-                  rows={4}
-                  placeholder="e.g. Schedule C Engine Overhaul and transmission oil change."
+                  rows={3}
+                  placeholder="e.g. Schedule C oil change, brake alignment..."
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg py-2 px-3 text-slate-200 placeholder-slate-650 focus:outline-none focus:border-blue-500 transition-colors"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg py-2 px-3 text-xs text-slate-200 placeholder-slate-650 focus:outline-none focus:border-blue-500 transition-colors"
                 />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                    Cost ($)
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min="0"
+                    placeholder="250"
+                    value={cost}
+                    onChange={(e) => setCost(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg py-2 px-3 text-xs text-slate-200 placeholder-slate-655 focus:outline-none focus:border-blue-500 transition-colors"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                    Date
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={serviceDate}
+                    onChange={(e) => setServiceDate(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg py-2 px-3 text-xs text-slate-200 focus:outline-none focus:border-blue-500 transition-colors"
+                  />
+                </div>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                  Maintenance Cost ($)
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                  Status
                 </label>
-                <input
-                  type="number"
-                  required
-                  min="0"
-                  placeholder="250"
-                  value={cost}
-                  onChange={(e) => setCost(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg py-2 px-3 text-slate-200 placeholder-slate-650 focus:outline-none focus:border-blue-500 transition-colors"
-                />
+                <select
+                  value={isActiveStatus ? 'Active' : 'Closed'}
+                  onChange={(e) => setIsActiveStatus(e.target.value === 'Active')}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg py-2 px-3 text-xs text-slate-200 focus:outline-none focus:border-blue-500 transition-colors"
+                >
+                  <option value="Active">Active (In Shop)</option>
+                  <option value="Closed">Closed (Completed)</option>
+                </select>
               </div>
 
-              <div className="flex justify-end space-x-3 pt-4 border-t border-slate-800 mt-6">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="bg-slate-850 hover:bg-slate-800 text-slate-300 px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2 rounded-lg text-sm font-semibold transition-colors shadow-lg shadow-blue-900/20"
-                >
-                  {loading ? 'Submitting...' : 'Register Log'}
-                </button>
-              </div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800/40 disabled:text-slate-500 disabled:cursor-not-allowed text-white py-2 rounded-lg font-bold text-xs transition-all shadow-lg shadow-blue-900/20 uppercase tracking-wider"
+              >
+                {loading ? 'Registering...' : 'Register Service'}
+              </button>
             </form>
+          ) : (
+            <div className="bg-slate-950/40 border border-slate-850 rounded-lg p-6 text-center text-slate-500 text-xs">
+              <AlertCircle className="h-8 w-8 mx-auto text-slate-600 mb-2" />
+              Access Restricted: Only Fleet Managers can log service records.
+            </div>
+          )}
+
+          {/* Informational Lifecycle Diagram */}
+          <div className="border-t border-slate-850 pt-4 mt-2">
+            <h3 className="text-[10px] uppercase tracking-wider font-bold text-slate-400 mb-2">Service Lifecycle Flow</h3>
+            <div className="space-y-2 text-[10px] font-semibold text-slate-400 bg-slate-950/40 p-3 rounded-lg border border-slate-850">
+              <div className="flex items-center space-x-1.5">
+                <span className="text-emerald-400 bg-emerald-500/10 px-1 py-0.5 rounded border border-emerald-500/20 font-bold">Available</span>
+                <span>→ (creating active record) →</span>
+                <span className="text-amber-400 bg-amber-500/10 px-1 py-0.5 rounded border border-amber-500/20 font-bold">In Shop</span>
+              </div>
+              <div className="flex items-center space-x-1.5">
+                <span className="text-amber-400 bg-amber-500/10 px-1 py-0.5 rounded border border-amber-500/20 font-bold">In Shop</span>
+                <span>→ (closing record, not retired) →</span>
+                <span className="text-emerald-400 bg-emerald-500/10 px-1 py-0.5 rounded border border-emerald-500/20 font-bold">Available</span>
+              </div>
+              <p className="text-[9px] text-slate-500 leading-normal pt-1.5 italic font-medium">
+                Note: In Shop vehicles are removed from the dispatch pool.
+              </p>
+            </div>
           </div>
         </div>
-      )}
+
+        {/* Right Column (2/3): Service Log List Table */}
+        <div className="lg:col-span-2 space-y-4 flex flex-col">
+          {/* Filters Bar */}
+          <div className="bg-slate-900/40 border border-slate-850 rounded-xl p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-3 h-4 w-4 text-slate-500" />
+              <input
+                type="text"
+                placeholder="Search by model, registration, or description..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg py-2 pl-9 pr-4 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+              />
+            </div>
+
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 rounded-lg py-2 px-3 text-xs text-slate-350 focus:outline-none focus:border-blue-500 transition-colors"
+            >
+              <option value="All">All Records</option>
+              <option value="Active">Active Maintenance (In Shop)</option>
+              <option value="Closed">Closed / Completed</option>
+            </select>
+          </div>
+
+          {/* Service Log Table */}
+          {filteredLogs.length === 0 ? (
+            <div className="bg-slate-900/30 border border-slate-800 rounded-xl p-12 text-center text-slate-500 flex-1 flex flex-col justify-center items-center">
+              <Wrench className="h-12 w-12 text-slate-700 mb-3" />
+              <p>No maintenance records found matching filters.</p>
+            </div>
+          ) : (
+            <div className="bg-slate-900/40 border border-slate-850 rounded-xl overflow-x-auto shadow-lg">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-slate-800 bg-slate-900/50 text-slate-400 font-semibold uppercase tracking-wider">
+                    <th className="py-3 px-4">Vehicle</th>
+                    <th className="py-3 px-4">Service Description</th>
+                    <th className="py-3 px-4 text-right">Cost</th>
+                    <th className="py-3 px-4">Date Logged</th>
+                    <th className="py-3 px-4">Status</th>
+                    {isFleetManager && <th className="py-3 px-4 text-right">Actions</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-850 text-slate-300">
+                  {filteredLogs.map((log) => (
+                    <tr key={log.id} className="hover:bg-slate-950/20 transition-colors">
+                      <td className="py-3.5 px-4 font-bold text-slate-200">
+                        <div>{log.vehicles?.name_model || 'Deleted Vehicle'}</div>
+                        <code className="text-[10px] text-blue-450 font-mono tracking-wider">{log.vehicles?.registration_number}</code>
+                      </td>
+                      <td className="py-3.5 px-4 max-w-xs truncate" title={log.description}>
+                        {log.description}
+                      </td>
+                      <td className="py-3.5 px-4 text-right font-bold text-slate-200">
+                        ${log.cost.toLocaleString()}
+                      </td>
+                      <td className="py-3.5 px-4 text-slate-400">
+                        <div>{new Date(log.created_at).toLocaleDateString()}</div>
+                        {log.closed_at && (
+                          <div className="text-[9px] text-emerald-500 font-semibold mt-0.5">Closed {new Date(log.closed_at).toLocaleDateString()}</div>
+                        )}
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                          log.is_active 
+                            ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' 
+                            : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                        }`}>
+                          {log.is_active ? 'In Shop' : 'Completed'}
+                        </span>
+                      </td>
+                      {isFleetManager && (
+                        <td className="py-3.5 px-4 text-right">
+                          {log.is_active && (
+                            <button
+                              onClick={() => handleCloseLog(log.id)}
+                              className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] transition-colors flex items-center space-x-1.5 ml-auto"
+                            >
+                              <CheckCircle2 className="h-3 w-3" />
+                              <span>Complete & Release</span>
+                            </button>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

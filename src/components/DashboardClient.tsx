@@ -39,6 +39,8 @@ interface Trip {
   source: string
   destination: string
   cargo_weight: number
+  planned_distance?: number
+  created_at?: string
   vehicles?: { registration_number: string; name_model: string } | null
   drivers?: { name: string } | null
 }
@@ -224,6 +226,166 @@ export default function DashboardClient({ vehicles, drivers, trips }: DashboardC
             </div>
           </div>
         ))}
+      </div>
+
+      {/* Recent Trips & Vehicle Status Breakdown */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Recent Trips Table (2/3 width) */}
+        <div className="bg-slate-900/40 border border-slate-850 rounded-xl p-5 shadow-lg lg:col-span-2 flex flex-col">
+          <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-850">
+            <h2 className="font-bold text-lg text-slate-200 flex items-center space-x-2">
+              <Route className="h-5 w-5 text-blue-400" />
+              <span>Recent Trips Registry</span>
+            </h2>
+            <Link 
+              href="/trips" 
+              className="text-blue-400 hover:text-blue-300 text-xs font-semibold"
+            >
+              View all trips
+            </Link>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-slate-800 text-slate-400 uppercase tracking-wider font-semibold">
+                  <th className="py-2.5 px-3">Trip ID</th>
+                  <th className="py-2.5 px-3">Vehicle</th>
+                  <th className="py-2.5 px-3">Driver</th>
+                  <th className="py-2.5 px-3">Status</th>
+                  <th className="py-2.5 px-3">ETA</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-850">
+                {trips
+                  .slice()
+                  .sort((a, b) => {
+                    const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+                    const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+                    return dateB - dateA;
+                  })
+                  .slice(0, 5)
+                  .map((trip) => {
+                    let eta = 'N/A';
+                    if (trip.status === 'Completed') eta = 'Completed';
+                    else if (trip.status === 'Draft') eta = 'Not started';
+                    else if (trip.status === 'Dispatched') {
+                      const dist = trip.planned_distance || 120;
+                      const hrs = Math.floor(dist / 65);
+                      const mins = Math.round((dist % 65) * 60 / 65);
+                      eta = `~${hrs > 0 ? `${hrs}h ` : ''}${mins}m`;
+                    }
+
+                    const badgeColor = 
+                      trip.status === 'Draft' ? 'bg-slate-500/10 text-slate-400 border-slate-500/20' :
+                      trip.status === 'Dispatched' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
+                      trip.status === 'Completed' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                      'bg-red-500/10 text-red-400 border-red-500/20';
+
+                    return (
+                      <tr key={trip.id} className="hover:bg-slate-950/20 transition-colors">
+                        <td className="py-3 px-3 font-mono text-slate-400">#{trip.id.substring(0, 8)}</td>
+                        <td className="py-3 px-3 font-medium text-slate-200">
+                          {trip.vehicles?.name_model || 'Unassigned'}
+                        </td>
+                        <td className="py-3 px-3 text-slate-300">
+                          {trip.drivers?.name || 'Unassigned'}
+                        </td>
+                        <td className="py-3 px-3">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${badgeColor}`}>
+                            {trip.status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 font-semibold text-slate-350">{eta}</td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Vehicle Status Breakdown Widget (1/3 width) */}
+        <div className="bg-slate-900/40 border border-slate-850 rounded-xl p-5 shadow-lg flex flex-col space-y-4">
+          <div>
+            <h2 className="font-bold text-lg text-slate-200 flex items-center space-x-2">
+              <Car className="h-5 w-5 text-indigo-400" />
+              <span>Vehicle Fleet Status</span>
+            </h2>
+            <p className="text-xs text-slate-400 mt-1">Status proportions and distribution across the fleet.</p>
+          </div>
+
+          {/* Proportional Stacked Bar */}
+          {(() => {
+            const avail = vehicles.filter(v => v.status === 'Available').length;
+            const trip = vehicles.filter(v => v.status === 'On Trip').length;
+            const shop = vehicles.filter(v => v.status === 'In Shop').length;
+            const retired = vehicles.filter(v => v.status === 'Retired').length;
+            const total = vehicles.length || 1;
+
+            const pAvail = (avail / total) * 100;
+            const pTrip = (trip / total) * 100;
+            const pShop = (shop / total) * 100;
+            const pRet = (retired / total) * 100;
+
+            return (
+              <div className="space-y-6">
+                {/* Horizontal progress stack bar */}
+                <div className="w-full h-3.5 rounded-full overflow-hidden flex bg-slate-950 border border-slate-800">
+                  {avail > 0 && (
+                    <div 
+                      className="bg-emerald-550 h-full transition-all duration-500" 
+                      style={{ width: `${pAvail}%` }}
+                      title={`Available: ${avail}`} 
+                    />
+                  )}
+                  {trip > 0 && (
+                    <div 
+                      className="bg-blue-500 h-full transition-all duration-500" 
+                      style={{ width: `${pTrip}%` }}
+                      title={`On Trip: ${trip}`} 
+                    />
+                  )}
+                  {shop > 0 && (
+                    <div 
+                      className="bg-amber-500 h-full transition-all duration-500" 
+                      style={{ width: `${pShop}%` }}
+                      title={`In Shop: ${shop}`} 
+                    />
+                  )}
+                  {retired > 0 && (
+                    <div 
+                      className="bg-slate-500 h-full transition-all duration-500" 
+                      style={{ width: `${pRet}%` }}
+                      title={`Retired: ${retired}`} 
+                    />
+                  )}
+                </div>
+
+                {/* Legend list with counts and percentages */}
+                <div className="grid grid-cols-2 gap-3.5">
+                  {[
+                    { label: 'Available', count: avail, pct: pAvail, color: 'bg-emerald-500 text-emerald-400' },
+                    { label: 'On Trip', count: trip, pct: pTrip, color: 'bg-blue-500 text-blue-400' },
+                    { label: 'In Shop', count: shop, pct: pShop, color: 'bg-amber-500 text-amber-400' },
+                    { label: 'Retired', count: retired, pct: pRet, color: 'bg-slate-500 text-slate-405' }
+                  ].map((item) => (
+                    <div key={item.label} className="bg-slate-950/30 border border-slate-850 p-2.5 rounded-lg flex flex-col">
+                      <div className="flex items-center space-x-1.5 mb-1">
+                        <div className={`w-2.5 h-2.5 rounded-full ${item.color.split(' ')[0]}`} />
+                        <span className="text-[10px] uppercase font-bold text-slate-450 tracking-wider">{item.label}</span>
+                      </div>
+                      <div className="flex justify-between items-baseline">
+                        <span className="text-base font-extrabold text-slate-100">{item.count}</span>
+                        <span className="text-[10px] text-slate-500 font-semibold">{Math.round(item.pct)}%</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+        </div>
       </div>
 
       {/* Active Trips Monitor */}

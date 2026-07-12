@@ -34,6 +34,8 @@ export default async function DashboardPage() {
       source,
       destination,
       cargo_weight,
+      planned_distance,
+      created_at,
       vehicles ( registration_number, name_model ),
       drivers ( name )
     `)
