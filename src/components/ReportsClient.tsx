@@ -10,7 +10,9 @@ import {
   Droplet, 
   DollarSign, 
   TrendingUp,
-  FileText
+  FileText,
+  Coins,
+  Search
 } from 'lucide-react'
 
 interface Vehicle {
