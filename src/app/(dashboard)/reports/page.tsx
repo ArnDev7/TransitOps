@@ -31,7 +31,7 @@ export default async function ReportsPage() {
   // Fetch trips for efficiency/revenue calculations
   const { data: trips } = await supabase
     .from('trips')
-    .select('vehicle_id, status, planned_distance, fuel_consumed, revenue')
+    .select('vehicle_id, status, planned_distance, fuel_consumed, revenue, created_at')
 
   return (
     <ReportsClient 
