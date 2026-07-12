@@ -3,11 +3,26 @@
 -- ----------------------------------------------------
 
 -- Clean up existing triggers and functions if they exist
-DROP TRIGGER IF EXISTS trips_status_cascade_trigger ON public.trips;
+DO $$
+BEGIN
+  -- Safe trigger drop for public.trips
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = 'trips') THEN
+    DROP TRIGGER IF EXISTS trips_status_cascade_trigger ON public.trips;
+  END IF;
+  
+  -- Safe trigger drop for public.maintenance_logs
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = 'maintenance_logs') THEN
+    DROP TRIGGER IF EXISTS maintenance_logs_status_cascade_trigger ON public.maintenance_logs;
+  END IF;
+
+  -- Safe trigger drop for auth.users
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'auth' AND tablename = 'users') THEN
+    DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+  END IF;
+END $$;
+
 DROP FUNCTION IF EXISTS public.handle_trip_status_change();
-DROP TRIGGER IF EXISTS maintenance_logs_status_cascade_trigger ON public.maintenance_logs;
 DROP FUNCTION IF EXISTS public.handle_maintenance_log_change();
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 DROP FUNCTION IF EXISTS public.handle_new_user();
 
 -- Create Tables
